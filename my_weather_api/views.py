@@ -44,8 +44,6 @@ class GetWeather(APIView):
     serializer_class = WeatherForecastDaySerializer
 
     def get(self, request):
-
-        # TODO: add a parameter to invalidate old saved forecast and call external api again
         
         country_code = request.GET.get('country_code')
         for_day = request.GET.get('date') # format YYYY-MM-DD
@@ -69,15 +67,21 @@ class GetWeather(APIView):
             return Response({'Bad Request': f"Value '{for_day}' for query parameter 'date' cannot be larger than 10 days from now - furthest possible date for today is: {todayPlusTen.strftime(DATE_FORMAT)}"}, status=status.HTTP_400_BAD_REQUEST)
         
         # TODO: potentially combine validation of country_code and for_day with proper feedback
-        
-        weatherForecastDay = WeatherForecastDay.objects.filter(country_code=country_code, for_day=for_day)
-        if len(weatherForecastDay) > 0:
-            data = WeatherForecastDaySerializer(weatherForecastDay[0]).data
+
+        force_api_call_query_param = request.GET.get('force_api_call')
+        force_api_call = False
+        if force_api_call_query_param != None and str(force_api_call_query_param).lower() in ['true', '1']:
+            force_api_call = True
+
+        weatherForecastDayQuerySet = WeatherForecastDay.objects.filter(country_code=country_code, for_day=for_day)
+        print(weatherForecastDayQuerySet)
+        if force_api_call == False and len(weatherForecastDayQuerySet) > 0:
+            data = WeatherForecastDaySerializer(weatherForecastDayQuerySet[0]).data
             avgtemp_c = float(data.get('average_temp_c'))
 
             forecast_json = {
                 'forecast': getForecastSummaryFromTempC(avgtemp_c),
-                'source': 'database'
+                'source': 'database - you can force request to external API with query parameter force_api_call=True'
             }
             return Response(forecast_json, status=status.HTTP_200_OK)
         else:
@@ -88,12 +92,23 @@ class GetWeather(APIView):
 
             json_response = response.json()
             avgtemp_c = json_response['forecast']['forecastday'][0]['day']['avgtemp_c']
-
-            forecast_json = {
-                'forecast': getForecastSummaryFromTempC(avgtemp_c),
-                'source': 'API call'
-            }
-            newWeatherForecastDay = WeatherForecastDay(country_code=country_code, for_day=query_date, average_temp_c=avgtemp_c)
-            newWeatherForecastDay.save()
+            
+            if len(weatherForecastDayQuerySet) > 0:
+                forecast_json = {
+                    'forecast': getForecastSummaryFromTempC(avgtemp_c),
+                    'source': 'forced API call'
+                }
+                # update entry
+                existingWeatherForecastDay = weatherForecastDayQuerySet[0]
+                existingWeatherForecastDay.average_temp_c = avgtemp_c
+                existingWeatherForecastDay.save(update_fields=['average_temp_c',])
+            else:
+                forecast_json = {
+                    'forecast': getForecastSummaryFromTempC(avgtemp_c),
+                    'source': 'API call'
+                }
+                # create entry
+                newWeatherForecastDay = WeatherForecastDay(country_code=country_code, for_day=query_date, average_temp_c=avgtemp_c)
+                newWeatherForecastDay.save()
 
             return Response(forecast_json, status=status.HTTP_200_OK)
