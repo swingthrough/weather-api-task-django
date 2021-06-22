@@ -36,7 +36,9 @@ class GetWeather(APIView):
 
         if ret_data['status'] == 'BAD_REQUEST':
             return Response({'Bad Request': ret_data['message']}, status=status.HTTP_400_BAD_REQUEST)
+        
+        elif ret_data['status'] == 'API_ERR':
+            return Response({'Api Error': ret_data['message']}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         # otherwise ret_json['status'] == 'OK'
-
         return Response(ret_data['data'], status=status.HTTP_200_OK)
